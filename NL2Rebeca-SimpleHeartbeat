@@ -1,0 +1,334 @@
+
+
+
+Here are some examples of Rebeca modeling language, you can also find more examples in Rebeca home page at https://rebeca-lang.org
+
+I will provide the Rebeca syntax, then some examples as their explanation and Rebeca corresponding code, What I need is that a Rebeca code for the last explanation, I mean Example 4
+
+
+Rebeca syntax:
+The abstract syntax of Rebeca: 
+
+Model F Class∗ Main
+Main F main { InstanceDcl∗ } 
+InstanceDcl F className rebecName(⟨rebecName⟩∗) : (⟨literal⟩∗);
+Class F reactiveclass className(⟨intliteral⟩) { KnownRebecs Vars MsgSrv∗ } 
+KnownRebecs F knownrebecs { RebecDcl∗ } Vars F statevars { VarDcl∗ } 
+RebecDcl F className ⟨𝑣⟩+;
+VarDcl F Type ⟨𝑣⟩+; | Type [ number ]+ 𝑣 
+MsgSrv F msgsrv msgName(⟨Type 𝑣⟩∗) { Stmt∗ } 𝑆𝑡𝑚𝑡 F Assignment | SendMessage | ConditionalStmt 
+Assignment F 𝑣 = Exp; | 𝑣 =?(Exp⟨, Exp⟩+); SendMessage F rebecExp.msgName(⟨Exp⟩∗); 
+ConditionalStmt F if (Exp) { Stmt∗ } [else { Stmt∗ }] Exp F 𝑒 | self | sender | rebecName 
+Type F boolean | int | short | byte | className 
+Abstract syntax of Rebeca. Angle brackets ⟨...⟩ are used as meta parenthesis, superscript + for repetition at least once, superscript ∗ for repetition zero or more times, whereas using ⟨...⟩ with repetition denotes a comma separated list. Brackets [...] indicates that the text within the brackets is optional. The symbol ? shows non-deterministic choice. Identifiers className, rebecName, methodName, 𝑣, literal, and type denote class name, rebec name, method name, variable, integer number, and type, respectively; and 𝑒 denotes an (arithmetic, boolean or nondeterministic choice) expression. The parameter t is an expression with natural number result. 
+
+Timed Rebeca is an extension on Rebeca with time features for modeling and verification of time-critical systems. In a Timed Rebeca model, each actor has its own local clock and the local clocks evolve uniformly. Methods are still executed atomically, however passing time while executing a method can be modeled. In addition, instead of a queue for messages, there is a bag of messages for each actor. The size of message bags is specified the same as setting queue sizes in Core Rebeca. Three primitives are added to Rebeca to address computation time, message delivery time, message expiration, and period of occurrence of events features. These timing primitives are delay, deadline and after. 
+The delay statement models the passing of time for an actor during the execution of a message server. The input parameter of delay illustrates the delay time which can be any kind of integer-valued expression, as shown in the below examples. 
+The keywords after and deadline can only be used in conjunction with a message sending statement. The value of the argument of after shows 
+1 how long it takes for the message to be delivered to its receiver actor . 
+The deadline shows the timeout for the message, i.e., how long it will stay valid. The given parameters of after and deadline can be any kind of integer-valued expressions, as shown in the following examples. 
+
+
+
+Example1: ScientificLab.rebeca
+Expalanation: We have a lab environment in which the level of a toxic gas changes over time. If this level rises above a certain threshold, the scientist’s life of the lab is in danger. Sensors in the lab constantly measure the amount of toxicity in the air and send the measurements to a central controller which periodically checks whether the scientist is in danger. If so, it notifies the scientist about the danger. The scientist should acknowledge the alarm; if he fails to do so in a timely manner, the controller notifies a rescue team. When the team reaches the lab it notifies the controller that the scientist has been rescued. If the controller does not receive this notification, it is concluded that the scientist has lost his life.
+Rebeca Code:
+reactiveclass Sensor(2) {
+	knownrebecs { Controller ctrl; }
+	statevars { byte period, id; }
+	
+	Sensor(byte myId, byte myPeriod) {
+		period = myPeriod;
+		id = myId;
+		self.doReport();
+	}
+	msgsrv doReport() {
+		ctrl.report(id, ?(0,1)) after(1);
+		self.doReport() after(period);
+	}
+}
+
+reactiveclass Controller(4) {
+
+	knownrebecs {
+	Scientist scientist;
+	Rescue rescue;
+	}
+	
+	statevars {
+		byte[2] sensorValues;
+		boolean sciAck, sciRescued, sciDead;
+		int ctrlCheckPeriod, scientistDeadline, rescueDeadline;
+	}
+	
+	Controller() {
+	sciDead = false;
+	sciAck = false;
+	sciRescued = false;
+	scientistDeadline = 5;
+	rescueDeadline = 4;
+	ctrlCheckPeriod = 15;
+	self.checkSensors();
+	}
+	
+	msgsrv report(byte id, byte value) {
+		sensorValues[id] = value;
+	}
+	
+	msgsrv checkSensors() {
+		boolean dangerousConditionIsDetected = false;
+		
+		for(int i = 0; i < 2; i++) {
+			if(sensorValues[i] != 0) {
+				scientist.abortPlan() after(1);
+				self.checkSciAck() after(scientistDeadline);
+				dangerousConditionIsDetected = true;
+			break; 
+			}
+		}
+		
+		if(!dangerousConditionIsDetected)
+			self.checkSensors() after(ctrlCheckPeriod);	
+	}
+	msgsrv ack() {
+		sciAck = true;
+	}
+	msgsrv checkSciAck() {
+		if (!sciAck) {
+			sciRescued = false;
+			rescue.go() after(1);
+			self.checkRescue() after(rescueDeadline);
+		}
+		sciAck = false;
+	}
+	msgsrv rescueReached() {
+		sciRescued = true;
+	}
+	msgsrv checkRescue() {
+		if (!sciRescued)
+			sciDead = true;
+		}
+}
+
+reactiveclass Scientist(3) {
+	msgsrv abortPlan() {
+		if(?(true, false))
+		((Controller)sender).ack() after(1);
+	}
+}
+
+reactiveclass Rescue(3) {
+	msgsrv go() {
+		delay(1);
+	((Controller)sender).rescueReached() after(1);
+	}
+}
+
+
+main {
+	Sensor sensor0(ctrl):(0, 10);
+	Sensor sensor1(ctrl):(1, 9);
+	Scientist scientist():();
+	Rescue rescue():();
+	Controller ctrl(scientist, rescue):();
+}
+
+
+Example 2: DiningPhilosophers.rebeca
+Expalanation: There are some philosophers sitting at a round table. Between each adjacent pair of philosophers is a chopstick. In other words, the chopsticks are equal to philosophers number. Each philosopher does two things: think and eat. The philosopher thinks for a while, and then stops thinking and becomes hungry. When the philosopher becomes hungry, he/she cannot eat until he/she owns the chopsticks to his/her left and right. When the philosopher is done eating he/she puts down the chopsticks and begins thinking again.
+
+Rebeca Code:
+
+reactiveclass Philosopher(3)
+{
+	knownrebecs
+	{
+		Fork forkL;
+		Fork forkR;
+	}
+	statevars
+	{
+		boolean eating;
+		boolean fL;
+		boolean fR;
+	}
+	Philosopher()
+	{
+		fL = false;
+		fR = false;
+		eating = false;
+		self.arrive();
+	}
+
+	msgsrv arrive()
+	{
+		forkL.request();
+	}
+
+	msgsrv permit()
+	{
+		if (sender == forkL) {
+			if (!fL) {
+				fL = true;
+				forkR.request();
+			}
+		}
+		else {
+			if (fL && !(fR)) {
+				fR = true;
+				self.eat();
+			}
+		}
+	}
+
+	msgsrv eat()
+	{
+		eating = true;
+		self.leave();
+	}
+
+	msgsrv leave()
+	{
+		fL = false;
+		fR = false;
+		eating = false;
+		forkL.release();
+		forkR.release();
+		self.arrive();
+	}
+}
+
+reactiveclass Fork(3)
+{
+	knownrebecs
+	{
+		Philosopher philL;
+		Philosopher philR;
+	}
+	statevars
+	{
+		boolean lAssign;	
+		boolean rAssign;	
+		boolean leftReq;
+		boolean rightReq;
+	}
+	Fork()
+	{ 
+		lAssign = false;
+		rAssign = false;
+		leftReq = false;
+		rightReq = false;
+	}
+
+	msgsrv request()
+	{
+		if (sender == philL) {
+			if (!leftReq) {
+				leftReq = true;
+				if (!rAssign) {
+					lAssign = true;
+					philL.permit();
+				}
+			} 
+		}
+		else {
+			if (!rightReq) {
+				rightReq = true;
+				if (!lAssign) {
+					rAssign = true;
+					philR.permit();
+				}
+			}
+		}
+	}
+	msgsrv release()
+	{
+		if (sender == philL && lAssign){
+			leftReq = false;
+			lAssign = false;
+			if (rightReq) {
+				rAssign=true;
+				philR.permit();
+			}
+		}
+		if (sender == philR && rAssign){
+			rAssign = false;
+			rightReq = false;
+			if (leftReq) {
+				lAssign=true;
+				philL.permit();
+			}
+		}
+	}
+}
+
+main
+{
+       Philosopher phil0(fork0, fork2):();
+       Philosopher phil1(fork0, fork1):();
+       Philosopher phil2(fork1, fork2):();
+
+       Fork fork0(phil0, phil1):();
+       Fork fork1(phil1, phil2):();
+       Fork fork2(phil2, phil0):();
+}
+
+
+Example 3: LCRLeader.rebeca
+Expalanation: within a ring network of nodes, each node initially assumes itself as the leader and communicates with its neighbor nodes to determine the actual leader. The node with the greatest ID should be the leader. Nodes exchange messages with their IDs and if a node receives an ID greater than its current leader ID, it updates the leader’s ID and notifies its neighbors. If a node receives an ID equal to its own, it is set as the leader. This is an iterative process until only one node, with the greatest number of their ID, remains as the leader.
+
+Rebeca Code:
+
+reactiveclass Node(8){
+	knownrebecs {
+		Node rightNode;
+	}
+	statevars {
+		boolean isLeader;
+		int myNumber;
+		int currentLeader;		
+	}
+	Node(byte n) {
+		myNumber = n;
+		currentLeader = n;
+		isLeader = false;
+		self.send();
+	}
+	
+	msgsrv ImLeader() {
+		self.ImLeader();
+	}
+	msgsrv send() {
+		rightNode.receive(currentLeader);
+	}
+	msgsrv receive(int n) {
+		if (n == myNumber) {
+			isLeader = true;
+			self.ImLeader();
+		}
+		else {
+			if (n > currentLeader) {
+				currentLeader = n;
+				self.send();
+			}
+		}
+	}
+}
+
+main {
+   Node node0(node2):(4); 
+   Node node1(node0):(20); 
+   Node node2(node1):(10); 
+}
+
+Example 4: 
+Explanation:
+We have a heartbeat algorithm for two redundant controller1 and controller2. We have two roles of primary and backup. At any point in time, one controller can be active and has the role of primary. The other controller is inactive and is the backup. If the primary fails, the backup becomes the primary. The primary sends heartbeats to the backup. If the backup cannot receive the heartbeat, it assumes that the primary has failed and becomes the primary.
+
+Rebeca Code: 
+
+
+
+
+
+
